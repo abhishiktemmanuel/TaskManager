@@ -7,7 +7,6 @@ import {
   Param,
   Body,
   UseGuards,
-  SetMetadata,
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
