@@ -1,3 +1,4 @@
+// src/tasks/dto/create-task.dto.ts
 import {
   IsString,
   IsEnum,
@@ -30,6 +31,10 @@ export class CreateTaskDto {
   @IsNumber()
   @IsOptional()
   assignedToId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  teamId?: number; // Add team selection
 
   @IsNumber()
   @IsOptional()

@@ -1,9 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThan } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { Task } from '../tasks/entities/task.entity';
 import { User } from '../users/entities/user.entity';
+import { Team } from '../users/entities/team.entity';
 import { UserRole } from '../users/interfaces/user-role.enum';
 import { Status } from '../tasks/interfaces/status.enum';
 
@@ -14,25 +19,34 @@ export class ReportsService {
     private tasksRepository: Repository<Task>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(Team) // Add Team repository
+    private teamsRepository: Repository<Team>,
   ) {}
 
   async exportTasksReport(user: User): Promise<ExcelJS.Workbook> {
     let tasks: Task[];
 
     if (user.role === UserRole.ADMIN) {
-      const teamUsers = await this.usersRepository.find({
-        where: { invitedByAdminId: user.id },
+      // Get all teams where user is owner or member
+      const teams = await this.teamsRepository.find({
+        where: [{ owner: { id: user.id } }, { members: { id: user.id } }],
+        relations: ['members'],
       });
-      const userIds = teamUsers.map((u) => u.id);
+
+      // Get all user IDs from these teams
+      const teamUserIds = teams.flatMap((team) =>
+        team.members.map((member) => member.id),
+      );
+      const uniqueUserIds = [...new Set(teamUserIds)];
 
       tasks = await this.tasksRepository.find({
-        where: { assignedTo: In(userIds) },
-        relations: ['assignedTo', 'todos'],
+        where: { assignedTo: In(uniqueUserIds) },
+        relations: ['assignedTo', 'todos', 'team'],
       });
     } else {
       tasks = await this.tasksRepository.find({
         where: { assignedTo: { id: user.id } },
-        relations: ['assignedTo', 'todos'],
+        relations: ['assignedTo', 'todos', 'team'],
       });
     }
 
@@ -47,6 +61,7 @@ export class ReportsService {
       { header: 'Status', key: 'status', width: 20 },
       { header: 'Due Date', key: 'dueDate', width: 15 },
       { header: 'Assigned To', key: 'assignedTo', width: 25 },
+      { header: 'Team', key: 'team', width: 25 },
       { header: 'Progress', key: 'progress', width: 10 },
       { header: 'Todos Completed', key: 'todosCompleted', width: 15 },
       { header: 'Total Todos', key: 'totalTodos', width: 15 },
@@ -68,6 +83,7 @@ export class ReportsService {
         assignedTo: task.assignedTo
           ? `${task.assignedTo.name} (${task.assignedTo.email})`
           : 'Unassigned',
+        team: task.team ? task.team.name : 'No Team',
         progress: `${task.progress}%`,
         todosCompleted: completedTodos,
         totalTodos: totalTodos,
@@ -81,9 +97,20 @@ export class ReportsService {
     let users: User[];
 
     if (user.role === UserRole.ADMIN) {
-      users = await this.usersRepository.find({
-        where: { invitedByAdminId: user.id },
+      // Get all teams where user is owner or member
+      const teams = await this.teamsRepository.find({
+        where: [{ owner: { id: user.id } }, { members: { id: user.id } }],
+        relations: ['members'],
       });
+
+      // Get all users from these teams
+      const allUsers = teams.flatMap((team) => team.members);
+
+      // Remove duplicates
+      users = allUsers.filter(
+        (userObj, index, self) =>
+          index === self.findIndex((u) => u.id === userObj.id),
+      );
     } else {
       users = [user];
     }
@@ -96,6 +123,7 @@ export class ReportsService {
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Role', key: 'role', width: 15 },
+      { header: 'Teams', key: 'teams', width: 30 },
       { header: 'Total Tasks', key: 'totalTasks', width: 15 },
       { header: 'Pending Tasks', key: 'pendingTasks', width: 15 },
       { header: 'In Progress Tasks', key: 'inProgressTasks', width: 15 },
@@ -125,11 +153,21 @@ export class ReportsService {
           ? ((completedTasks / totalTasks) * 100).toFixed(2) + '%'
           : '0%';
 
+      // Get user's teams
+      const userWithTeams = await this.usersRepository.findOne({
+        where: { id: user.id },
+        relations: ['teams'],
+      });
+
+      const teamNames =
+        userWithTeams?.teams?.map((team) => team.name).join(', ') || 'No Teams';
+
       worksheet.addRow({
         id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
+        teams: teamNames,
         totalTasks,
         pendingTasks,
         inProgressTasks,
@@ -143,15 +181,26 @@ export class ReportsService {
 
   async getTeamPerformanceReport(user: User) {
     if (user.role !== UserRole.ADMIN) {
-      throw new Error('Only admins can access team performance reports');
+      throw new ForbiddenException(
+        'Only admins can access team performance reports',
+      );
     }
 
-    const teamUsers = await this.usersRepository.find({
-      where: { invitedByAdminId: user.id },
+    // Get all teams where user is owner or member
+    const teams = await this.teamsRepository.find({
+      where: [{ owner: { id: user.id } }, { members: { id: user.id } }],
+      relations: ['members'],
     });
 
+    // Get all users from these teams
+    const allUsers = teams.flatMap((team) => team.members);
+    const uniqueUsers = allUsers.filter(
+      (userObj, index, self) =>
+        index === self.findIndex((u) => u.id === userObj.id),
+    );
+
     const report = await Promise.all(
-      teamUsers.map(async (teamUser) => {
+      uniqueUsers.map(async (teamUser) => {
         const [totalTasks, completedTasks, overdueTasks] = await Promise.all([
           this.tasksRepository.count({
             where: { assignedTo: { id: teamUser.id } },
@@ -165,7 +214,7 @@ export class ReportsService {
           this.tasksRepository.count({
             where: {
               assignedTo: { id: teamUser.id },
-              status: In(['Pending', 'In Progress']),
+              status: In([Status.PENDING, Status.IN_PROGRESS]),
               dueDate: LessThan(new Date()),
             },
           }),
@@ -175,6 +224,7 @@ export class ReportsService {
           userId: teamUser.id,
           userName: teamUser.name,
           userEmail: teamUser.email,
+          userRole: teamUser.role,
           totalTasks,
           completedTasks,
           overdueTasks,
@@ -185,5 +235,61 @@ export class ReportsService {
     );
 
     return report;
+  }
+
+  // New method: Get team-specific reports
+  async getTeamDetailedReport(user: User, teamId: number) {
+    // Verify user has access to this team
+    const team = await this.teamsRepository.findOne({
+      where: { id: teamId },
+      relations: ['members', 'owner'],
+    });
+
+    if (!team) {
+      throw new NotFoundException('Team not found');
+    }
+
+    const hasAccess =
+      team.owner.id === user.id ||
+      team.members.some((member) => member.id === user.id);
+    if (!hasAccess) {
+      throw new ForbiddenException('You do not have access to this team');
+    }
+
+    const teamUserIds = team.members.map((member) => member.id);
+
+    const tasks = await this.tasksRepository.find({
+      where: { assignedTo: In(teamUserIds) },
+      relations: ['assignedTo', 'todos'],
+    });
+
+    const teamReport = {
+      teamId: team.id,
+      teamName: team.name,
+      totalMembers: team.members.length,
+      totalTasks: tasks.length,
+      completedTasks: tasks.filter((task) => task.status === Status.COMPLETED)
+        .length,
+      pendingTasks: tasks.filter((task) => task.status === Status.PENDING)
+        .length,
+      inProgressTasks: tasks.filter(
+        (task) => task.status === Status.IN_PROGRESS,
+      ).length,
+      overdueTasks: tasks.filter(
+        (task) =>
+          [Status.PENDING, Status.IN_PROGRESS].includes(task.status) &&
+          new Date(task.dueDate) < new Date(),
+      ).length,
+      tasks: tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        assignedTo: task.assignedTo.name,
+        dueDate: task.dueDate,
+        progress: task.progress,
+      })),
+    };
+
+    return teamReport;
   }
 }

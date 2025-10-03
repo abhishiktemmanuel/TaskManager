@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import Input from '../../components/common/Input'; 
 import { getErrorMessage } from '../../utils/errorHandler';
-
 
 const SignUp: React.FC = () => {
   const [name, setName] = useState('');
@@ -12,9 +11,18 @@ const SignUp: React.FC = () => {
   const [adminInviteToken, setAdminInviteToken] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
 
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  // Auto-fill token from URL when component mounts
+  useEffect(() => {
+    const tokenFromUrl = searchParams.get('token');
+    if (tokenFromUrl) {
+      setAdminInviteToken(tokenFromUrl);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,11 +62,31 @@ const SignUp: React.FC = () => {
               />
             </svg>
           </div>
-          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Create an account</h1>
-          <p className="text-gray-500 mt-2 text-lg">Join the team and get your tasks done efficiently.</p>
+          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">
+            {adminInviteToken ? 'Join Team' : 'Create an account'}
+          </h1>
+          <p className="text-gray-500 mt-2 text-lg">
+            {adminInviteToken 
+              ? 'You\'ve been invited to join a team!' 
+              : 'Join the team and get your tasks done efficiently.'
+            }
+          </p>
         </div>
 
         <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8 sm:p-10">
+          {adminInviteToken && (
+            <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="flex items-center">
+                <svg className="w-5 h-5 text-green-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <p className="text-green-700 text-sm font-medium">
+                  Team invitation detected! You'll automatically join the team after registration.
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div
@@ -110,12 +138,16 @@ const SignUp: React.FC = () => {
             />
             <Input
               id="adminToken"
-              label="Admin invite token"
+              label="Team invitation token"
               type="text"
               value={adminInviteToken}
               onChange={(e) => setAdminInviteToken(e.target.value)}
-              placeholder="Optional token for admin access"
-              helperText="Only required for admin registration."
+              placeholder="Auto-filled from invitation link"
+              helperText={adminInviteToken 
+                ? "This token will add you to the team automatically" 
+                : "Only required if you have a team invitation token"
+              }
+              disabled={!!searchParams.get('token')} // Disable if token came from URL
             />
 
             <button
@@ -126,10 +158,10 @@ const SignUp: React.FC = () => {
               {loading ? (
                 <div className="flex items-center justify-center">
                   <div className="w-5 h-5 border-t-2 border-white border-solid rounded-full animate-spin mr-2"></div>
-                  Creating account...
+                  {adminInviteToken ? 'Joining team...' : 'Creating account...'}
                 </div>
               ) : (
-                'Create account'
+                adminInviteToken ? 'Join Team' : 'Create account'
               )}
             </button>
           </form>

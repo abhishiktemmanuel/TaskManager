@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles/roles.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { User } from '../users/entities/user.entity';
+import { Team } from 'src/users/entities/team.entity';
 import { UserRole } from '../users/interfaces/user-role.enum';
 import { Roles } from '../common/decorators/roles.decorator';
 

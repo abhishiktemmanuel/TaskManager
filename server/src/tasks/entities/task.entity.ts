@@ -10,6 +10,7 @@ import { User } from '../../users/entities/user.entity';
 import { Todo } from './todo.entity';
 import { Priority } from '../interfaces/priority.enum';
 import { Status } from '../interfaces/status.enum';
+import { Team } from '../../users/entities/team.entity';
 
 @Entity()
 export class Task {
@@ -46,6 +47,14 @@ export class Task {
   @ManyToOne(() => User, (user) => user.createdTasks)
   @JoinColumn({ name: 'created_by_id' })
   createdBy: User;
+
+  // Task belongs to a team
+  @ManyToOne(() => Team, (team) => team.tasks)
+  @JoinColumn({ name: 'team_id' })
+  team: Team;
+
+  @Column({ name: 'team_id' })
+  teamId: number;
 
   @Column({ default: 0 })
   progress: number;

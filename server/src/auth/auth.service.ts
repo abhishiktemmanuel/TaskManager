@@ -1,13 +1,16 @@
+// src/auth/auth.service.ts
 import {
   Injectable,
   UnauthorizedException,
   ConflictException,
   BadRequestException,
   Logger,
+  NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '../users/entities/user.entity';
@@ -15,27 +18,32 @@ import { UserRole } from '../users/interfaces/user-role.enum';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { TokenPayload } from './interfaces/token-payload.interface';
+import { Team } from '../users/entities/team.entity';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly ADMIN_INVITE_TOKENS = new Map<
+  private readonly TEAM_INVITE_TOKENS = new Map<
     string,
-    { adminId: number; expiresAt: Date }
+    { adminId: number; teamId: number; expiresAt: Date; purpose?: string } // teamId is required number
   >();
 
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(Team)
+    private teamsRepository: Repository<Team>,
+    private dataSource: DataSource,
     private jwtService: JwtService,
-  ) {
-    // Initialize with a default admin token for first-time setup
-    this.generateAdminInviteToken(1, 'initial-admin'); // You can remove this after initial setup
-  }
+  ) {}
 
   async register(
     registerDto: RegisterDto,
   ): Promise<{ access_token: string; user: Omit<User, 'password'> }> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
       const { email, password, name, adminInviteToken } = registerDto;
 
@@ -45,7 +53,7 @@ export class AuthService {
       }
 
       // Check if user already exists
-      const existingUser = await this.usersRepository.findOne({
+      const existingUser = await queryRunner.manager.findOne(User, {
         where: { email },
         select: ['id', 'email'],
       });
@@ -54,44 +62,74 @@ export class AuthService {
         throw new ConflictException('User with this email already exists');
       }
 
-      let role = UserRole.USER;
-      let invitedByAdminId: number | undefined = undefined;
+      let role = UserRole.ADMIN;
+      let team: Team | null = null;
 
-      // Handle admin registration with token validation
+      // Handle team member registration with token validation
       if (adminInviteToken) {
-        const tokenValidation = await this.validateAdminToken(adminInviteToken);
-        if (tokenValidation.valid) {
-          role = UserRole.ADMIN;
-          invitedByAdminId = tokenValidation.adminId;
-          this.logger.log(
-            `Admin user created by admin ID: ${tokenValidation.adminId}`,
-          );
+        const tokenValidation = await this.validateTeamInviteToken(adminInviteToken);
+        if (tokenValidation.valid && tokenValidation.teamId) {
+          role = UserRole.USER;
+          
+          // Verify the team exists before proceeding
+          team = await queryRunner.manager.findOne(Team, {
+            where: { id: tokenValidation.teamId },
+            relations: ['members']
+          });
+
+          if (!team) {
+            throw new BadRequestException(
+              'The team associated with this invitation no longer exists',
+            );
+          }
+
+          this.logger.log(`Team member will be added to team: ${team.name}`);
         } else {
-          throw new BadRequestException(
-            'Invalid or expired admin invitation token',
-          );
+          throw new BadRequestException('Invalid or expired team invitation token');
         }
+      } else {
+        this.logger.log(`New admin created without invitation token: ${email}`);
       }
 
       // Hash password
-      const hashedPassword = await bcrypt.hash(password, 12); // Increased salt rounds for production
+      const hashedPassword = await bcrypt.hash(password, 12);
 
-      // Create and save user
-      const user = this.usersRepository.create({
-        email: email.toLowerCase().trim(), // Normalize email
+      // Create user (without teams initially)
+      const user = queryRunner.manager.create(User, {
+        email: email.toLowerCase().trim(),
         password: hashedPassword,
         name: name.trim(),
         role,
-        invitedByAdminId,
       });
 
-      await this.usersRepository.save(user);
+      const savedUser = await queryRunner.manager.save(user);
+
+      // Handle team assignment
+      if (adminInviteToken && team) {
+        team.members.push(savedUser);
+        await queryRunner.manager.save(team);
+        this.logger.log(`User ${savedUser.id} added to team ${team.id}`);
+      } else if (!adminInviteToken) {
+        // Create default team for admin and add user
+        const defaultTeam = queryRunner.manager.create(Team, {
+          name: `${name}'s Team`,
+          description: `Default team for ${name}`,
+          owner: savedUser,
+          members: [savedUser],
+        });
+        const savedTeam = await queryRunner.manager.save(defaultTeam);
+        team = savedTeam;
+        // Update user with team relationship
+        savedUser.teams = [savedTeam];
+        await queryRunner.manager.save(savedUser);
+        this.logger.log(`Default team created for admin ${savedUser.id}`);
+      }
 
       // Generate JWT token
       const payload: TokenPayload = {
-        email: user.email,
-        sub: user.id,
-        role: user.role,
+        email: savedUser.email,
+        sub: savedUser.id,
+        role: savedUser.role,
       };
 
       const access_token = this.jwtService.sign(payload, {
@@ -101,19 +139,21 @@ export class AuthService {
       });
 
       // Remove password from response
-      const { password: _, ...userWithoutPassword } = user;
+      const { password: _, ...userWithoutPassword } = savedUser;
 
-      this.logger.log(
-        `User registered successfully: ${user.email} with role: ${user.role}`,
-      );
+      await queryRunner.commitTransaction();
+      this.logger.log(`User registered successfully: ${savedUser.email} with role: ${savedUser.role}`);
 
       return {
         access_token,
         user: userWithoutPassword,
       };
     } catch (error) {
+      await queryRunner.rollbackTransaction();
       this.logger.error(`Registration failed: ${error.message}`, error.stack);
-      throw error; // Re-throw the error to be handled by NestJS
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 
@@ -144,11 +184,6 @@ export class AuthService {
       if (!isPasswordValid) {
         throw new UnauthorizedException('Invalid credentials');
       }
-
-      // Check if user is active (you can add an 'active' field to your user entity)
-      // if (!user.isActive) {
-      //   throw new UnauthorizedException('Account is deactivated');
-      // }
 
       // Generate JWT token
       const payload: TokenPayload = {
@@ -206,36 +241,106 @@ export class AuthService {
   }
 
   /**
-   * Generate a secure admin invitation token
+   * Generate a secure team invitation token (for admins to invite team members)
    */
-  generateAdminInviteToken(adminId: number, purpose?: string): string {
-    const token = uuidv4() as string;
+  async generateTeamInviteToken(adminId: number, teamId?: number, purpose?: string): Promise<string> {
+    // Verify the admin exists and is actually an admin
+    const admin = await this.usersRepository.findOne({
+      where: { id: adminId, role: UserRole.ADMIN }
+    });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found or user is not an admin');
+    }
+
+    let targetTeamId: number;
+    
+    if (teamId) {
+      // Verify the admin has access to the specified team
+      const team = await this.teamsRepository.findOne({
+        where: { id: teamId },
+        relations: ['members', 'owner']
+      });
+
+      if (!team || (team.owner.id !== adminId && !team.members.some(m => m.id === adminId))) {
+        throw new ForbiddenException('You do not have access to this team');
+      }
+      targetTeamId = teamId;
+    } else {
+      // Use admin's first owned team as default
+      const ownedTeams = await this.teamsRepository.find({
+        where: { owner: { id: adminId } }
+      });
+      
+      if (ownedTeams.length === 0) {
+        throw new NotFoundException('Admin does not own any teams');
+      }
+      targetTeamId = ownedTeams[0].id;
+    }
+
+    const token = uuidv4();
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
+    expiresAt.setHours(expiresAt.getHours() + 24);
 
-    this.ADMIN_INVITE_TOKENS.set(token, { adminId, expiresAt });
+    this.TEAM_INVITE_TOKENS.set(token, {
+      adminId, 
+      teamId: targetTeamId,
+      expiresAt, 
+      purpose 
+    });
 
-    this.logger.log(
-      `Admin invite token generated for admin ID: ${adminId}, purpose: ${purpose || 'general'}`,
-    );
+    this.logger.log(`Team invitation token generated for team ID: ${targetTeamId} by admin ID: ${adminId}`);
     return token;
   }
 
   /**
-   * Validate admin invitation token
+   * Get all team invitation tokens for an admin (for management)
    */
-  private async validateAdminToken(
+  getAdminTokens(
+    adminId: number,
+  ): Array<{ token: string; expiresAt: Date; purpose?: string }> {
+    const tokens: Array<{ token: string; expiresAt: Date; purpose?: string }> =
+      [];
+    for (const [token, data] of this.TEAM_INVITE_TOKENS.entries()) {
+      if (data.adminId === adminId) {
+        tokens.push({
+          token,
+          expiresAt: data.expiresAt,
+          purpose: data.purpose,
+        });
+      }
+    }
+
+    return tokens;
+  }
+
+  /**
+   * Revoke a specific team invitation token
+   */
+  revokeTeamInviteToken(token: string, adminId: number): boolean {
+    const tokenData = this.TEAM_INVITE_TOKENS.get(token);
+    if (tokenData && tokenData.adminId === adminId) {
+      this.TEAM_INVITE_TOKENS.delete(token);
+      this.logger.log(`Team invitation token revoked by admin ID: ${adminId}`);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Validate team invitation token
+   */
+  private async validateTeamInviteToken(
     token: string,
-  ): Promise<{ valid: boolean; adminId?: number }> {
+  ): Promise<{ valid: boolean; adminId?: number; teamId?: number }> {
     try {
-      // Check in-memory tokens first
-      const tokenData = this.ADMIN_INVITE_TOKENS.get(token);
+      const tokenData = this.TEAM_INVITE_TOKENS.get(token);
 
       if (tokenData) {
         // Check if token is expired
         if (new Date() > tokenData.expiresAt) {
-          this.ADMIN_INVITE_TOKENS.delete(token);
-          this.logger.warn(`Expired admin token attempted: ${token}`);
+          this.TEAM_INVITE_TOKENS.delete(token);
+          this.logger.warn(`Expired team invitation token attempted: ${token}`);
           return { valid: false };
         }
 
@@ -245,19 +350,33 @@ export class AuthService {
         });
 
         if (adminUser) {
-          // Remove used token (one-time use)
-          this.ADMIN_INVITE_TOKENS.delete(token);
-          this.logger.log(
-            `Admin token validated successfully for admin ID: ${tokenData.adminId}`,
-          );
-          return { valid: true, adminId: tokenData.adminId };
+          // Verify the team still exists
+          const team = await this.teamsRepository.findOne({
+            where: { id: tokenData.teamId }
+          });
+
+          if (team) {
+            this.logger.log(
+              `Team invitation token validated for team ID: ${tokenData.teamId}`,
+            );
+            return { 
+              valid: true, 
+              adminId: tokenData.adminId,
+              teamId: tokenData.teamId,
+            };
+          } else {
+            // Team no longer exists - invalidate token
+            this.TEAM_INVITE_TOKENS.delete(token);
+            this.logger.warn(`Team no longer exists for token: ${token}`);
+            return { valid: false };
+          }
         }
       }
 
-      this.logger.warn(`Invalid admin token attempted: ${token}`);
+      this.logger.warn(`Invalid team invitation token attempted: ${token}`);
       return { valid: false };
     } catch (error) {
-      this.logger.error(`Admin token validation error: ${error.message}`);
+      this.logger.error(`Team invitation token validation error: ${error.message}`);
       return { valid: false };
     }
   }
@@ -269,36 +388,75 @@ export class AuthService {
     const now = new Date();
     let cleanedCount = 0;
 
-    for (const [token, data] of this.ADMIN_INVITE_TOKENS.entries()) {
+    for (const [token, data] of this.TEAM_INVITE_TOKENS.entries()) {
       if (now > data.expiresAt) {
-        this.ADMIN_INVITE_TOKENS.delete(token);
+        this.TEAM_INVITE_TOKENS.delete(token);
         cleanedCount++;
       }
     }
 
     if (cleanedCount > 0) {
-      this.logger.log(`Cleaned up ${cleanedCount} expired admin tokens`);
+      this.logger.log(
+        `Cleaned up ${cleanedCount} expired team invitation tokens`,
+      );
     }
 
     return cleanedCount;
   }
 
   /**
-   * Get statistics about admin tokens (for monitoring)
+   * Get statistics about team invitation tokens (for monitoring)
    */
-  getAdminTokenStats(): { total: number; expired: number } {
+  getTeamTokenStats(): { total: number; expired: number; valid: number } {
     const now = new Date();
     let expired = 0;
 
-    for (const data of this.ADMIN_INVITE_TOKENS.values()) {
+    for (const data of this.TEAM_INVITE_TOKENS.values()) {
       if (now > data.expiresAt) {
         expired++;
       }
     }
 
+    const total = this.TEAM_INVITE_TOKENS.size;
+    const valid = total - expired;
+
     return {
-      total: this.ADMIN_INVITE_TOKENS.size,
+      total,
       expired,
+      valid,
     };
+  }
+
+  /**
+   * Get team members for a specific admin
+   */
+  async getTeamMembers(adminId: number): Promise<User[]> {
+    const admin = await this.usersRepository.findOne({
+      where: { id: adminId, role: UserRole.ADMIN },
+      relations: ['teams'],
+    });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    const team = await this.teamsRepository.findOne({
+      where: { owner: { id: adminId } },
+      relations: ['members', 'members.assignedTasks'],
+    });
+
+    return team ? team.members : [];
+  }
+
+  /**
+   * Verify if a user can invite team members (is an admin)
+   */
+  async canInviteTeamMembers(userId: number): Promise<boolean> {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'role'],
+    });
+
+    return user?.role === UserRole.ADMIN;
   }
 }

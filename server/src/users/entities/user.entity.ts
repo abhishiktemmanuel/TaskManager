@@ -1,6 +1,13 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  OneToMany,
+  ManyToMany,
+} from 'typeorm';
 import { Task } from '../../tasks/entities/task.entity';
 import { UserRole } from '../interfaces/user-role.enum';
+import { Team } from './team.entity';
 
 @Entity()
 export class User {
@@ -26,8 +33,13 @@ export class User {
   })
   role: UserRole;
 
-  @Column({ nullable: true })
-  invitedByAdminId: number;
+  // Many-to-many relationship with teams - REMOVE @JoinTable from here
+  @ManyToMany(() => Team, (team) => team.members)
+  teams: Team[]; // Remove the @JoinTable decorator and its configuration
+
+  // Track which teams this user owns (if they're an admin)
+  @OneToMany(() => Team, (team) => team.owner)
+  ownedTeams: Team[];
 
   @OneToMany(() => Task, (task) => task.assignedTo)
   assignedTasks: Task[];
