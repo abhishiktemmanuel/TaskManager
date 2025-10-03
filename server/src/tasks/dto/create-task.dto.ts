@@ -32,9 +32,9 @@ export class CreateTaskDto {
   @IsOptional()
   assignedToId?: number;
 
-  @IsNumber()
   @IsOptional()
-  teamId?: number; // Add team selection
+  @IsNumber()
+  teamId?: number;
 
   @IsNumber()
   @IsOptional()

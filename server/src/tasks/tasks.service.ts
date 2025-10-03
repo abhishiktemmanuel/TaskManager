@@ -4,9 +4,10 @@ import {
   NotFoundException,
   ForbiddenException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { Task } from './entities/task.entity';
 import { Todo } from './entities/todo.entity';
 import { User } from '../users/entities/user.entity';
@@ -123,7 +124,7 @@ export class TasksService {
   async getTasks(user: User) {
     try {
       if (user.role === UserRole.ADMIN) {
-        // Admin sees tasks from all their teams
+        // Admin sees tasks from all their teams AND personal tasks they created
         const teams = await this.teamsRepository.find({
           where: { owner: { id: user.id } },
           relations: ['members'],
@@ -135,12 +136,15 @@ export class TasksService {
         const allUserIds = [...new Set(teamUserIds)];
 
         return this.tasksRepository.find({
-          where: { assignedTo: In(allUserIds) },
+          where: [
+            { assignedTo: In(allUserIds) }, // Team tasks
+            { createdBy: { id: user.id }, team: IsNull() }, // Personal tasks created by admin
+          ],
           relations: ['assignedTo', 'createdBy', 'todos', 'team'],
           order: { createdAt: 'DESC' },
         });
       } else {
-        // Users see tasks assigned to them
+        // Users see tasks assigned to them (both team and personal)
         return this.tasksRepository.find({
           where: { assignedTo: { id: user.id } },
           relations: ['assignedTo', 'createdBy', 'todos', 'team'],
@@ -185,9 +189,72 @@ export class TasksService {
     try {
       const { assignedToId, teamId, todos, ...taskData } = createTaskDto;
 
-      // Determine which team this task belongs to
-      let team: Team | null;
-      if (teamId) {
+      let team: Team | null = null;
+      let assignedUser = user;
+
+      // Handle assignment logic first
+      if (assignedToId) {
+        const foundUser = await this.usersRepository.findOne({
+          where: { id: assignedToId },
+          relations: ['teams'],
+        });
+
+        if (!foundUser) {
+          throw new NotFoundException('Assigned user not found');
+        }
+
+        // If assigning to someone else, we need to determine the team
+        if (foundUser.id !== user.id) {
+          // If teamId is provided, use that team
+          if (teamId) {
+            team = await this.teamsRepository.findOne({
+              where: { id: teamId },
+              relations: ['members', 'owner'],
+            });
+
+            if (!team) {
+              throw new NotFoundException('Team not found');
+            }
+
+            // Check if user has access to this team
+            const hasTeamAccess = await this.userHasAccessToTeam(user, team);
+            if (!hasTeamAccess) {
+              throw new ForbiddenException('You do not have access to this team');
+            }
+
+            // Check if assigned user is in the same team
+            const isUserInTeam = foundUser.teams.some((t) => t.id === team!.id);
+            if (!isUserInTeam) {
+              throw new ForbiddenException(
+                'Assigned user is not in the selected team',
+              );
+            }
+          } else {
+            // If no teamId provided, try to find a shared team between admin and assigned user
+            const sharedTeams = await this.teamsRepository
+              .createQueryBuilder('team')
+              .innerJoin('team.members', 'member')
+              .where('member.id = :userId', { userId: user.id })
+              .andWhere('team.id IN (SELECT "team_id" FROM user_teams WHERE user_id = :assignedUserId)', { assignedUserId: foundUser.id })
+              .getMany();
+
+            if (sharedTeams.length === 0) {
+              throw new BadRequestException(
+                'No shared team found with the assigned user. Please specify a team ID.',
+              );
+            }
+
+            // Use the first shared team (you might want to let the user choose if multiple)
+            team = sharedTeams[0];
+            this.logger.log(`Auto-selected shared team: ${team.name} for task assignment`);
+          }
+        }
+
+        assignedUser = foundUser;
+      }
+
+      // If teamId is provided but we haven't fetched the team yet (for self-assignment with team)
+      if (teamId && !team) {
         team = await this.teamsRepository.findOne({
           where: { id: teamId },
           relations: ['members', 'owner'],
@@ -202,89 +269,17 @@ export class TasksService {
         if (!hasTeamAccess) {
           throw new ForbiddenException('You do not have access to this team');
         }
-      } else {
-        // Auto-select first team for the user
-        const userTeams = await this.teamsRepository.find({
-          where: { members: { id: user.id } },
-        });
-
-        // If user has no teams, check if they own any teams (for admins)
-        if (userTeams.length === 0) {
-          const ownedTeams = await this.teamsRepository.find({
-            where: { owner: { id: user.id } },
-          });
-          if (ownedTeams.length === 0) {
-            // If user owns no teams, create a default team for them
-            const defaultTeam = this.teamsRepository.create({
-              name: `${user.name}'s Team`,
-              description: `Default team for ${user.name}`,
-              owner: user,
-              members: [user],
-            });
-            team = await this.teamsRepository.save(defaultTeam);
-            this.logger.log(`Created default team for user ${user.id}`);
-          } else {
-            const foundTeam = await this.teamsRepository.findOne({
-              where: { id: ownedTeams[0].id },
-              relations: ['members'],
-            });
-            if (!foundTeam) {
-              throw new NotFoundException('Team not found');
-            }
-            team = foundTeam;
-            // Add user to their owned team if not already a member
-            if (!team.members?.some((member) => member.id === user.id)) {
-              if (!team.members) team.members = [];
-              team.members.push(user);
-              await this.teamsRepository.save(team);
-            }
-          }
-        } else {
-          team = userTeams[0];
-        }
       }
 
-      // Handle assignment logic
-      let assignedUser = user;
-      if (assignedToId) {
-        const foundUser = await this.usersRepository.findOne({
-          where: { id: assignedToId },
-          relations: ['teams'],
-        });
+      // For personal tasks (self-assigned without team), team remains null
+      // For team tasks assigned to others, we now have a team
 
-        if (!foundUser) {
-          throw new NotFoundException('Assigned user not found');
-        }
-
-        // Check if assigned user is in the same team
-        const isUserInTeam = foundUser.teams.some((t) => t.id === team.id);
-        if (!isUserInTeam) {
-          throw new ForbiddenException(
-            'Assigned user is not in the selected team',
-          );
-        }
-
-        assignedUser = foundUser;
-      } else {
-        // If no assignedToId provided, ensure current user is in the team
-        const isUserInTeam =
-          user.teams?.some((t) => t.id === team.id) ||
-          team.owner.id === user.id;
-        if (!isUserInTeam) {
-          // Add user to the team if they're not already a member
-          if (!team.members) team.members = [];
-          if (!team.members.some((member) => member.id === user.id)) {
-            team.members.push(user);
-            await this.teamsRepository.save(team);
-          }
-        }
-      }
-
+      // Create the task
       const task = this.tasksRepository.create({
         ...taskData,
         assignedTo: assignedUser,
         createdBy: user,
-        team: team,
+        team: team, // This can be null for personal tasks
       });
 
       if (todos && todos.length > 0) {
@@ -337,6 +332,7 @@ export class TasksService {
             throw new NotFoundException('Assigned user not found');
           }
 
+          // Add null check for team
           const isUserInTeam = assignedUser.teams.some((t) => t.id === team.id);
           if (!isUserInTeam) {
             throw new ForbiddenException(
@@ -362,12 +358,23 @@ export class TasksService {
           throw new NotFoundException('Assigned user not found');
         }
 
-        // Check if assigned user is in the task's team
-        const isUserInTeam = assignedUser.teams.some(
-          (t) => t.id === task.team.id,
-        );
-        if (!isUserInTeam) {
-          throw new ForbiddenException('Assigned user is not in the task team');
+        // Check if assigned user is in the task's team - with null check
+        if (task.team) {
+          const isUserInTeam = assignedUser.teams.some(
+            (t) => t.id === task.team!.id, // Use non-null assertion since we checked task.team exists
+          );
+          if (!isUserInTeam) {
+            throw new ForbiddenException(
+              'Assigned user is not in the task team',
+            );
+          }
+        } else {
+          // If task has no team, only allow assigning to self
+          if (assignedUser.id !== user.id) {
+            throw new ForbiddenException(
+              'You can only assign personal tasks to yourself',
+            );
+          }
         }
 
         task.assignedTo = assignedUser;
@@ -491,6 +498,11 @@ export class TasksService {
   // Helper method to check if user has access to a task
   private async userHasAccessToTask(user: User, task: Task): Promise<boolean> {
     try {
+      // Personal task - only the assigned user and creator have access
+      if (!task.team) {
+        return task.assignedTo.id === user.id || task.createdBy.id === user.id;
+      }
+
       if (user.role === UserRole.ADMIN) {
         // Admin can access tasks from their teams
         const adminTeams = await this.teamsRepository.find({

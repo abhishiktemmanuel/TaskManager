@@ -49,12 +49,12 @@ export class Task {
   createdBy: User;
 
   // Task belongs to a team
-  @ManyToOne(() => Team, (team) => team.tasks)
+  @ManyToOne(() => Team, (team) => team.tasks, { nullable: true })
   @JoinColumn({ name: 'team_id' })
-  team: Team;
+  team: Team | null;
 
-  @Column({ name: 'team_id' })
-  teamId: number;
+  @Column({ name: 'team_id', nullable: true })
+  teamId: number | null;
 
   @Column({ default: 0 })
   progress: number;
