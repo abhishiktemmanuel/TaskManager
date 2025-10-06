@@ -1,17 +1,5 @@
 import { createContext } from 'react';
-import type { Task } from '../types/index';
-
-export interface User {
-  id: number;
-  name: string;
-  email: string;
-  profileImageURL: string | null;
-  role: 'admin' | 'user';
-  invitedByAdminId: number | null;
-  createdAt: string;
-  updatedAt: string;
-  assignedTasks?: Task[];
-}
+import type { User } from '../types/index';
 
 export interface AuthContextType {
   user: User | null;

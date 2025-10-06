@@ -15,6 +15,13 @@ export const API_PATHS = {
   USERS: '/users',
   USER_BY_ID: (id: string) => `/users/${id}`,
   TEAM_MEMBERS: '/users/team',
+  USER_TEAMS: '/users/teams', // Add this if you create the endpoint
+  
+  // Admin
+  GENERATE_INVITE_TOKEN: '/auth/team/generate-invite-token',
+  GET_INVITE_TOKENS: '/auth/team/invite-tokens',
+  REVOKE_INVITE_TOKEN: '/auth/team/revoke-invite-token',
+  SYSTEM_STATS: '/admin/system-stats',
   
   // Reports
   EXPORT_TASKS: '/reports/tasks/export',

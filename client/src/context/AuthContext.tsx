@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { axiosInstance } from '../utils/axiosInstance';
 import { API_PATHS } from '../utils/apiPath';
 import { storage } from '../utils/helper';
-import { AuthContext, type AuthContextType, type User } from './authContext';
+import { AuthContext, type AuthContextType } from './authContext';
+import type { User } from '../types/index';
 
 const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);

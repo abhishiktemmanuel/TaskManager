@@ -11,6 +11,7 @@ import Dashboard from './pages/Admin/Dashboard';
 import ManageTasks from './pages/Admin/ManageTasks';
 import CreateTask from './pages/Admin/CreateTask';
 import ManageUsers from './pages/Admin/ManageUsers';
+import AdminTaskDetails from './pages/Admin/AdminTaskDetails';
 
 // User Pages
 import UserDashboard from './pages/User/UserDashboard';
@@ -37,6 +38,7 @@ function App() {
               <Route path="/admin/create-task" element={<CreateTask />} />
               <Route path="/admin/users" element={<ManageUsers />} />
               <Route path="/admin/generate-token" element={<GenerateToken />} />
+              <Route path="/admin/task/:id" element={<AdminTaskDetails />} />
             </Route>
           </Route>
 

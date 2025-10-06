@@ -1,4 +1,4 @@
-import type { User } from '../context/authContext';
+import type { User } from '../types/index';
 
 // Format date to readable string
 export const formatDate = (dateString: string): string => {

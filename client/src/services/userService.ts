@@ -1,6 +1,6 @@
 import { axiosInstance } from '../utils/axiosInstance';
 import { API_PATHS } from '../utils/apiPath';
-import type { User } from '../context/authContext';
+import type { User, Team } from '../types/index';
 
 // Define proper TypeScript interfaces for user operations
 interface CreateUserData {
@@ -21,6 +21,11 @@ interface UpdateUserData {
 export const userService = {
   async getUsers(): Promise<User[]> {
     const response = await axiosInstance.get(API_PATHS.USERS);
+    return response.data.data;
+  },
+
+  async getTeams(): Promise<Team[]> {
+    const response = await axiosInstance.get('/users/teams'); // You'll need to create this endpoint
     return response.data.data;
   },
 
