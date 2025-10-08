@@ -1,4 +1,4 @@
-// src/pages/Admin/CreateTask.tsx (Updated version)
+// src/pages/Admin/CreateTask.tsx (Refactored version)
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTasks } from '../../hooks/useTask';
@@ -25,6 +25,7 @@ const CreateTask: React.FC = () => {
   const [team, setTeam] = useState<UserSummary[]>([]);
   const [assignedToId, setAssignedToId] = useState<number | undefined>();
   const [isFetchingTeam, setIsFetchingTeam] = useState(false);
+  const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
 
   const { createTask, loading } = useTasks();
   const { user } = useAuth();
@@ -37,12 +38,31 @@ const CreateTask: React.FC = () => {
       setIsFetchingTeam(true);
       userService.getTeamMembers()
         .then((teamList: UserSummary[]) => {
-          const withSelf = [
-            { id: user.id, name: `${user.name} (Me)`, email: user.email },
-            ...(teamList || [])
-          ];
-          setTeam(withSelf);
+          // Create a Set to track existing user IDs and avoid duplicates
+          const existingUserIds = new Set<number>();
+          const uniqueTeam: UserSummary[] = [];
+          
+          // Add current user first with "Self" label
+          uniqueTeam.push({ 
+            id: user.id, 
+            name: `Self`, 
+            email: user.email 
+          });
+          existingUserIds.add(user.id);
+          
+          // Add other team members, skipping current user if present
+          teamList.forEach(member => {
+            if (!existingUserIds.has(member.id)) {
+              uniqueTeam.push(member);
+              existingUserIds.add(member.id);
+            }
+          });
+          
+          setTeam(uniqueTeam);
           setAssignedToId(user.id);
+          
+          // Show assignee dropdown only if there are other team members besides current user
+          setShowAssigneeDropdown(uniqueTeam.length > 1);
         })
         .catch(() => setError('Failed to fetch team members'))
         .finally(() => setIsFetchingTeam(false));
@@ -69,7 +89,8 @@ const CreateTask: React.FC = () => {
       return;
     }
 
-    if (isAdmin && !assignedToId) {
+    // Only validate assignee if dropdown is shown (multiple users exist)
+    if (isAdmin && showAssigneeDropdown && !assignedToId) {
       setError('Please choose an assignee');
       return;
     }
@@ -80,10 +101,10 @@ const CreateTask: React.FC = () => {
       description,
       priority,
       status: 'Pending' as Status,
-      dueDate, // Keep as YYYY-MM-DD string
+      dueDate,
     };
 
-    // Only add optional fields if they have values
+    // Only add assignedToId if it's set (will be current user by default)
     if (isAdmin && assignedToId) {
       payload.assignedToId = assignedToId;
     }
@@ -200,8 +221,8 @@ const CreateTask: React.FC = () => {
               </div>
             </div>
 
-            {/* Assign To (Admin only) */}
-            {isAdmin && (
+            {/* Assign To (Admin only) - Only show if there are multiple users */}
+            {isAdmin && showAssigneeDropdown && (
               <div className="space-y-3">
                 <label className="block text-sm font-semibold text-gray-900">
                   <User className="inline w-4 h-4 mr-1" />
@@ -214,7 +235,7 @@ const CreateTask: React.FC = () => {
                     className="w-full px-4 py-3 pr-10 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 appearance-none bg-white cursor-pointer"
                     disabled={isFetchingTeam}
                   >
-                    <option value="">Select team member (optional)</option>
+                    <option value="">Select team member</option>
                     {team.map(member => (
                       <option key={member.id} value={member.id}>
                         {member.name} {member.email && `• ${member.email}`}
@@ -227,9 +248,8 @@ const CreateTask: React.FC = () => {
                     </svg>
                   </div>
                 </div>
-                <p className="text-xs text-gray-500 flex items-center gap-1">
-                  <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                  Leave empty to assign to yourself
+                <p className="text-xs text-gray-500">
+                  Task will be assigned to the selected team member
                 </p>
               </div>
             )}
@@ -237,7 +257,7 @@ const CreateTask: React.FC = () => {
             {/* Todo Items */}
             <div className="space-y-4">
               <label className="block text-sm font-semibold text-gray-900">
-                Todo
+                Todo Items
               </label>
               
               {/* Add Todo Input */}
@@ -272,7 +292,7 @@ const CreateTask: React.FC = () => {
                   {todos.map((todo, index) => (
                     <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg group">
                       <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                      <span className="flex-1 text-gray-700">{todo}</span>
+                      <span className="flex-1 text-left text-gray-700">{todo}</span>
                       <button
                         type="button"
                         onClick={() => removeTodo(index)}

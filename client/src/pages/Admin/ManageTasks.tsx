@@ -38,6 +38,8 @@ const ManageTasks: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<string>('all');
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [hasTeamMembers, setHasTeamMembers] = useState(false);
+  const [hasTeams, setHasTeams] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -47,7 +49,27 @@ const ManageTasks: React.FC = () => {
     }
 
     adminService.getAdminTasks()
-      .then((data: Task[]) => setTasks(data))
+      .then((data: Task[]) => {
+        setTasks(data);
+        
+        // Check if there are team members (other than the current user)
+        const uniqueUsers = Array.from(new Map(
+          data
+            .filter(task => task.assignedTo)
+            .map(task => [task.assignedTo!.id, task.assignedTo])
+        ).values());
+        
+        const uniqueTeams = Array.from(new Map(
+          data
+            .filter(task => task.team)
+            .map(task => [task.team!.id, task.team])
+        ).values());
+
+        // Set hasTeamMembers to true if there are users other than current user
+        const hasOtherUsers = uniqueUsers.some(u => u.id !== user.id);
+        setHasTeamMembers(hasOtherUsers);
+        setHasTeams(uniqueTeams.length > 0);
+      })
       .catch(() => setError('Failed to load tasks.'))
       .finally(() => setLoading(false));
   }, [user, navigate]);
@@ -133,7 +155,7 @@ const ManageTasks: React.FC = () => {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-center space-y-4">
           <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
-          <span className="text-slate-500 text-sm">Loading team tasks...</span>
+          <span className="text-slate-500 text-sm">Loading tasks...</span>
         </div>
       </div>
     );
@@ -155,6 +177,9 @@ const ManageTasks: React.FC = () => {
     );
   }
 
+  const pageTitle = hasTeamMembers || hasTeams ? "Team Tasks" : "Tasks";
+  const loadingText = hasTeamMembers || hasTeams ? "Loading team tasks..." : "Loading tasks...";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
@@ -162,43 +187,50 @@ const ManageTasks: React.FC = () => {
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900 mb-1">Team Tasks</h1>
+              <h1 className="text-2xl font-semibold text-slate-900 mb-1">{pageTitle}</h1>
               <p className="text-slate-500 text-sm">
                 {sortedTasks.length} of {tasks.length} tasks
-                {selectedUser !== 'all' && ` • Filtered by ${uniqueUsers.find(u => u.id.toString() === selectedUser)?.name}`}
-                {selectedTeam !== 'all' && ` • ${uniqueTeams.find(t => t.id.toString() === selectedTeam)?.name}`}
+                {hasTeamMembers && selectedUser !== 'all' && ` • Filtered by ${uniqueUsers.find(u => u.id.toString() === selectedUser)?.name}`}
+                {hasTeams && selectedTeam !== 'all' && ` • ${uniqueTeams.find(t => t.id.toString() === selectedTeam)?.name}`}
                 {selectedStatus !== 'all' && ` • ${selectedStatus}`}
               </p>
             </div>
             <div className="flex items-center space-x-4">
               {/* Filters */}
               <div className="flex items-center space-x-2">
-                <select
-                  value={selectedUser}
-                  onChange={e => setSelectedUser(e.target.value)}
-                  className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Members</option>
-                  {uniqueUsers.map(user => (
-                    <option key={user.id} value={user.id}>
-                      {user.name}
-                    </option>
-                  ))}
-                </select>
+                {/* User filter - only show if there are team members */}
+                {hasTeamMembers && (
+                  <select
+                    value={selectedUser}
+                    onChange={e => setSelectedUser(e.target.value)}
+                    className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="all">All Members</option>
+                    {uniqueUsers.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
-                <select
-                  value={selectedTeam}
-                  onChange={e => setSelectedTeam(e.target.value)}
-                  className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All Teams</option>
-                  {uniqueTeams.map(team => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
+                {/* Team filter - only show if there are teams */}
+                {hasTeams && (
+                  <select
+                    value={selectedTeam}
+                    onChange={e => setSelectedTeam(e.target.value)}
+                    className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="all">All Teams</option>
+                    {uniqueTeams.map(team => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
+                {/* Status filter - always show */}
                 <select
                   value={selectedStatus}
                   onChange={e => setSelectedStatus(e.target.value)}
@@ -288,8 +320,8 @@ const ManageTasks: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Team info */}
-                  {task.team && (
+                  {/* Team info - only show if teams exist */}
+                  {hasTeams && task.team && (
                     <div className="mb-3">
                       <span className="inline-block px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
                         {task.team.name}
