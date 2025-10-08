@@ -196,6 +196,47 @@ export const adminService = {
     }
   },
 
+  async updateTask(id: number, updateData: Partial<{
+    title: string;
+    description: string;
+    priority: string;
+    status: string;
+    dueDate: string;
+    assignedToId: number;
+    teamId: number;
+  }>): Promise<Task> {
+    const response = await axiosInstance.put(`/tasks/${id}`, updateData);
+    return response.data.data;
+  },
+
+  /**
+   * Update task checklist (admin version)
+   */
+  async updateTaskChecklist(id: number, todoChecklist: Array<{
+    id?: number;
+    text: string;
+    completed: boolean;
+  }>): Promise<Task> {
+    const response = await axiosInstance.put(`/tasks/${id}/todo`, { todoChecklist });
+    return response.data.data;
+  },
+
+  /**
+   * Get all users for assignment (admin only)
+   */
+  async getUsersForAssignment(): Promise<any[]> {
+    const response = await axiosInstance.get('/users');
+    return response.data.data;
+  },
+
+  /**
+   * Get all teams for assignment (admin only)
+   */
+  async getTeamsForAssignment(): Promise<any[]> {
+    const response = await axiosInstance.get('/users/teams');
+    return response.data.data;
+  },
+
   /**
    * Update task status (admin override)
    */

@@ -11,7 +11,11 @@ const AdminTaskDetails: React.FC = () => {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [manualProgressChange, setManualProgressChange] = useState(false);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [savingProgress, setSavingProgress] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
@@ -25,11 +29,73 @@ const AdminTaskDetails: React.FC = () => {
     adminService.getTaskById(+id)
       .then(taskData => {
         setTask(taskData);
+        setProgress(taskData.progress || 0);
         setTodos(taskData.todos || []);
       })
       .catch(() => setError('Failed to load task details'))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleProgressSave = async () => {
+    if (!task) return;
+
+    const newStatus: Task['status'] =
+      progress === 100 ? 'Completed' : progress > 0 ? 'In Progress' : 'Pending';
+
+    const updatePayload: any = {
+      progress: Number(progress),
+    };
+    
+    if (newStatus !== task.status) {
+      updatePayload.status = newStatus;
+    }
+
+    setSavingProgress(true);
+    setError('');
+    try {
+      const updated = await adminService.updateTask(task.id, updatePayload);
+      setTask(updated);
+      setProgress(updated.progress || 0);
+      setManualProgressChange(false);
+    } catch (err: any) {
+      console.error('Update task failed:', err.response?.data || err);
+      setError('Failed to update progress');
+    } finally {
+      setSavingProgress(false);
+    }
+  };
+
+  const handleTodoToggle = async (index: number) => {
+    if (!task) return;
+
+    const updatedTodos = todos.map((todo, idx) =>
+      idx === index ? { ...todo, completed: !todo.completed } : todo
+    );
+
+    setTodos(updatedTodos);
+
+    setError('');
+    try {
+      const checklistPayload = updatedTodos.map(todo => ({
+        id: todo.id,
+        text: todo.text,
+        completed: todo.completed
+      }));
+      
+      // You'll need to add this method to your adminService
+      const updatedTaskWithTodos = await adminService.updateTaskChecklist(task.id, checklistPayload);
+      
+      setTask({ ...task, ...updatedTaskWithTodos });
+      setTodos(updatedTaskWithTodos.todos || updatedTodos);
+      setProgress(updatedTaskWithTodos.progress || 0);
+      setManualProgressChange(false);
+      
+    } catch (err: any) {
+      console.error('Failed to update todo:', err.response?.data || err);
+      setError('Failed to update checklist');
+      setTodos(task.todos || []);
+    }
+  };
 
   const handleDelete = async () => {
     if (!task) return;
@@ -53,10 +119,21 @@ const AdminTaskDetails: React.FC = () => {
     try {
       const updatedTask = await adminService.updateTaskStatus(task.id, newStatus);
       setTask(updatedTask);
+      // Update progress based on status change
+      const newProgress = newStatus === 'Completed' ? 100 : newStatus === 'In Progress' ? 50 : 0;
+      setProgress(newProgress);
     } catch (err: any) {
       console.error('Status update failed:', err);
       setError('Failed to update task status');
     }
+  };
+
+  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const newProgress = Math.round((x / rect.width) * 100);
+    setProgress(Math.max(0, Math.min(100, newProgress)));
+    setManualProgressChange(true);
   };
 
   const getPriorityColor = (priority: string) => {
@@ -224,24 +301,54 @@ const AdminTaskDetails: React.FC = () => {
             </div>
           </div>
 
-          {/* Progress Section */}
+          {/* Progress Section - Interactive Bar */}
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-semibold text-gray-900">
                 Task Progress
               </label>
-              <span className="text-2xl font-bold text-blue-600">{task.progress}%</span>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-bold text-blue-600">{progress}%</span>
+                {manualProgressChange && (
+                  <button
+                    onClick={handleProgressSave}
+                    disabled={savingProgress}
+                    className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
+                  >
+                    {savingProgress && (
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    )}
+                    {savingProgress ? 'Saving...' : 'Save'}
+                  </button>
+                )}
+              </div>
             </div>
             
-            <div className="w-full bg-gray-200 rounded-full h-4">
+            {/* Interactive Progress Bar */}
+            <div className="relative">
               <div 
-                className="h-4 bg-blue-600 rounded-full transition-all duration-300"
-                style={{ width: `${task.progress}%` }}
-              />
+                className="w-full bg-gray-200 rounded-full h-8 overflow-hidden cursor-pointer relative group"
+                onClick={handleProgressBarClick}
+                onMouseEnter={() => setIsDragging(true)}
+                onMouseLeave={() => setIsDragging(false)}
+              >
+                <div 
+                  className="h-full bg-blue-600 rounded-full transition-all duration-300 relative"
+                  style={{ width: `${progress}%` }}
+                >
+                  <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+                </div>
+                {isDragging && (
+                  <div className="absolute inset-0 flex items-center justify-center text-xs text-white font-medium pointer-events-none">
+                    Click to set progress
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Click on the progress bar to update manually, or complete checklist items below</p>
             </div>
           </div>
 
-          {/* Checklist Section */}
+          {/* Checklist Section - Interactive */}
           <div className="p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -253,6 +360,9 @@ const AdminTaskDetails: React.FC = () => {
                   </span>
                 )}
               </h2>
+              {todos.length === 0 && (
+                <span className="text-sm text-gray-400">No items</span>
+              )}
             </div>
 
             {todos.length > 0 ? (
@@ -260,19 +370,18 @@ const AdminTaskDetails: React.FC = () => {
                 {todos.map((todo, i) => (
                   <li
                     key={todo.id || i}
-                    className={`flex items-center gap-3 p-3 rounded-lg border ${
+                    className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 ${
                       todo.completed
                         ? 'bg-gray-50 border-gray-200'
-                        : 'bg-white border-gray-200'
+                        : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'
                     }`}
                   >
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                      todo.completed
-                        ? 'bg-green-500 border-green-500 text-white'
-                        : 'border-gray-300'
-                    }`}>
-                      {todo.completed && '✓'}
-                    </div>
+                    <input
+                      type="checkbox"
+                      checked={todo.completed}
+                      onChange={() => handleTodoToggle(i)}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                    />
                     <span
                       className={`flex-1 text-sm ${
                         todo.completed
@@ -288,7 +397,7 @@ const AdminTaskDetails: React.FC = () => {
             ) : (
               <div className="text-center py-8 text-gray-400">
                 <CheckCircle2 className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No checklist items</p>
+                <p className="text-sm">No checklist items yet</p>
               </div>
             )}
           </div>
