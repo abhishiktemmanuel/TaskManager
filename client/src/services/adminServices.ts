@@ -1,5 +1,4 @@
 import { axiosInstance } from '../utils/axiosInstance';
-import { API_PATHS } from '../utils/apiPath';
 import type { Task } from '../types';
 
 export interface TeamInviteToken {
@@ -65,7 +64,7 @@ export const adminService = {
       const teamsMap = new Map();
       teamMembers.forEach(member => {
         if (member.teams) {
-          member.teams.forEach(team => {
+          member.teams.forEach((team: any) => {
             if (!teamsMap.has(team.id)) {
               teamsMap.set(team.id, team);
             }

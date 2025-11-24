@@ -34,6 +34,7 @@ export interface Task {
   team?: Team | null;
   progress: number;
   todos: Todo[];
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

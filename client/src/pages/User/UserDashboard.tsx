@@ -2,35 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboard, useTasks } from '../../hooks/useTask';
 import { useAuth } from '../../hooks/useAuth';
-
-// Define proper TypeScript interfaces for the component props
-interface StatCardProps {
-  title: string;
-  value: number;
-  color: string;
-  icon: string;
-}
-
-interface TaskCardProps {
-  id: number;
-  title: string;
-  status: string;
-  priority: string;
-  dueDate: string;
-  progress: number;
-  onClick: () => void;
-}
-
-interface Task {
-  id: number;
-  title: string;
-  status: string;
-  priority: string;
-  dueDate: string;
-  progress: number;
-  description?: string;
-  createdAt: string;
-}
+import type { Task } from '../../types';
 
 const UserDashboard: React.FC = () => {
   const { stats, loading: statsLoading } = useDashboard();
@@ -48,6 +20,23 @@ const UserDashboard: React.FC = () => {
       setRecentTasks(sortedTasks);
     }
   }, [tasks]);
+
+  interface StatCardProps {
+    title: string;
+    value: number;
+    color: string;
+    icon: string;
+  }
+
+  interface TaskCardProps {
+    id: number;
+    title: string;
+    status: string;
+    priority: string;
+    dueDate: string;
+    progress: number;
+    onClick: () => void;
+  }
 
   const StatCard: React.FC<StatCardProps> = ({ title, value, color, icon }) => (
     <div className="bg-white rounded-xl border border-gray-200 p-6">

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { adminService } from '../services/adminServices';
-import type { TeamInviteToken, GenerateTokenData, AdminStats, TeamPerformance, Task } from '../types';
+import type { TeamInviteToken, GenerateTokenData, AdminStats, Task } from '../types';
 import { getErrorMessage } from '../utils/errorHandler';
 
 export const useAdmin = () => {

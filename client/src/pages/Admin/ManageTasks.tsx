@@ -2,27 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { adminService } from '../../services/adminServices';
 import { useNavigate } from 'react-router-dom';
-
-interface Todo {
-  id: number;
-  text: string;
-  completed: boolean;
-}
-
-interface Task {
-  id: number;
-  title: string;
-  description: string;
-  priority: 'Low' | 'Medium' | 'High';
-  status: 'Pending' | 'In Progress' | 'Completed';
-  dueDate: string;
-  progress: number;
-  todos: Todo[];
-  createdAt: string;
-  completedAt?: string;
-  assignedTo?: { id: number; name: string; email: string };
-  team?: { id: number; name: string };
-}
+import type { Task } from '../../types';
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = {
   High: 0,
@@ -56,17 +36,17 @@ const ManageTasks: React.FC = () => {
         const uniqueUsers = Array.from(new Map(
           data
             .filter(task => task.assignedTo)
-            .map(task => [task.assignedTo!.id, task.assignedTo])
+            .map(task => [task.assignedTo!.id, task.assignedTo!])
         ).values());
         
         const uniqueTeams = Array.from(new Map(
           data
             .filter(task => task.team)
-            .map(task => [task.team!.id, task.team])
+            .map(task => [task.team!.id, task.team!])
         ).values());
 
         // Set hasTeamMembers to true if there are users other than current user
-        const hasOtherUsers = uniqueUsers.some(u => u.id !== user.id);
+        const hasOtherUsers = uniqueUsers.some(u => u && u.id !== user.id);
         setHasTeamMembers(hasOtherUsers);
         setHasTeams(uniqueTeams.length > 0);
       })
@@ -82,13 +62,13 @@ const ManageTasks: React.FC = () => {
   const uniqueUsers = Array.from(new Map(
     tasks
       .filter(task => task.assignedTo)
-      .map(task => [task.assignedTo!.id, task.assignedTo])
+      .map(task => [task.assignedTo!.id, task.assignedTo!])
   ).values());
 
   const uniqueTeams = Array.from(new Map(
     tasks
       .filter(task => task.team)
-      .map(task => [task.team!.id, task.team])
+      .map(task => [task.team!.id, task.team!])
   ).values());
 
   // Filter tasks based on selections
@@ -106,21 +86,21 @@ const ManageTasks: React.FC = () => {
   });
 
   const getPriorityColor = (priority: Task['priority']) => {
-    const colors = {
+    const colors: Record<string, string> = {
       High: 'bg-red-500',
       Medium: 'bg-amber-500',
       Low: 'bg-emerald-500'
     };
-    return colors[priority];
+    return colors[priority] || 'bg-slate-500';
   };
 
   const getStatusColor = (status: Task['status']) => {
-    const colors = {
+    const colors: Record<string, string> = {
       'Completed': 'text-emerald-600 bg-emerald-50',
       'In Progress': 'text-amber-600 bg-amber-50',
       'Pending': 'text-slate-500 bg-slate-50'
     };
-    return colors[status];
+    return colors[status] || 'text-slate-500 bg-slate-50';
   };
 
   const formatDateInfo = (task: Task) => {
@@ -178,7 +158,6 @@ const ManageTasks: React.FC = () => {
   }
 
   const pageTitle = hasTeamMembers || hasTeams ? "Team Tasks" : "Tasks";
-  const loadingText = hasTeamMembers || hasTeams ? "Loading team tasks..." : "Loading tasks...";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -190,8 +169,8 @@ const ManageTasks: React.FC = () => {
               <h1 className="text-2xl font-semibold text-slate-900 mb-1">{pageTitle}</h1>
               <p className="text-slate-500 text-sm">
                 {sortedTasks.length} of {tasks.length} tasks
-                {hasTeamMembers && selectedUser !== 'all' && ` • Filtered by ${uniqueUsers.find(u => u.id.toString() === selectedUser)?.name}`}
-                {hasTeams && selectedTeam !== 'all' && ` • ${uniqueTeams.find(t => t.id.toString() === selectedTeam)?.name}`}
+                {hasTeamMembers && selectedUser !== 'all' && ` • Filtered by ${uniqueUsers.find(u => u && u.id.toString() === selectedUser)?.name || ''}`}
+                {hasTeams && selectedTeam !== 'all' && ` • ${uniqueTeams.find(t => t && t.id.toString() === selectedTeam)?.name || ''}`}
                 {selectedStatus !== 'all' && ` • ${selectedStatus}`}
               </p>
             </div>
@@ -206,9 +185,9 @@ const ManageTasks: React.FC = () => {
                     className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="all">All Members</option>
-                    {uniqueUsers.map(user => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
+                    {uniqueUsers.map(u => u && (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
                       </option>
                     ))}
                   </select>
@@ -222,9 +201,9 @@ const ManageTasks: React.FC = () => {
                     className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white/80 backdrop-blur-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="all">All Teams</option>
-                    {uniqueTeams.map(team => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
+                    {uniqueTeams.map(t => t && (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
                       </option>
                     ))}
                   </select>

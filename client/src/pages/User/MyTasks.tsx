@@ -2,25 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { userService } from '../../services/userService';
 import { useNavigate } from 'react-router-dom';
-
-interface Todo {
-  id: number;
-  text: string;
-  completed: boolean;
-}
-
-interface Task {
-  id: number;
-  title: string;
-  description: string;
-  priority: 'Low' | 'Medium' | 'High';
-  status: 'Pending' | 'In Progress' | 'Completed';
-  dueDate: string;
-  progress: number;
-  todos: Todo[];
-  createdAt: string;
-  completedAt?: string; // Optional completion date
-}
+import type { Task } from '../../types';
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = {
   High: 0,
@@ -59,21 +41,21 @@ const MyTasks: React.FC = () => {
   });
 
   const getPriorityColor = (priority: Task['priority']) => {
-    const colors = {
+    const colors: Record<string, string> = {
       High: 'bg-red-500',
       Medium: 'bg-amber-500',
       Low: 'bg-emerald-500'
     };
-    return colors[priority];
+    return colors[priority] || 'bg-slate-500';
   };
 
   const getStatusColor = (status: Task['status']) => {
-    const colors = {
+    const colors: Record<string, string> = {
       'Completed': 'text-emerald-600 bg-emerald-50',
       'In Progress': 'text-amber-600 bg-amber-50',
       'Pending': 'text-slate-500 bg-slate-50'
     };
-    return colors[status];
+    return colors[status] || 'text-slate-500 bg-slate-50';
   };
 
   const formatDateInfo = (task: Task) => {
