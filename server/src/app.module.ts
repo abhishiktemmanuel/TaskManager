@@ -17,6 +17,7 @@ import appConfig from './config/app.config';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: ['.env.local', '.env', '../.env.local', '../.env'],
       load: [appConfig],
     }),
     TypeOrmModule.forRoot(databaseConfig),

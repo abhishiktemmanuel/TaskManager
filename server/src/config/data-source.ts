@@ -3,11 +3,17 @@ import { User } from '../users/entities/user.entity';
 import { Task } from '../tasks/entities/task.entity';
 import { Todo } from '../tasks/entities/todo.entity';
 import { Team } from '../users/entities/team.entity';
+import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-dotenv.config();
+// Load .env.local and .env
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const migrationDbUrl = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
+const hasDatabaseUrl = Boolean(migrationDbUrl);
 const useSsl =
   process.env.DB_SSL === 'true' ||
   (hasDatabaseUrl && process.env.DB_SSL !== 'false');
@@ -16,7 +22,7 @@ export const AppDataSource = new DataSource(
   hasDatabaseUrl
     ? {
         type: 'postgres',
-        url: process.env.DATABASE_URL,
+        url: migrationDbUrl,
         entities: [User, Task, Todo, Team],
         synchronize: false,
         ssl: useSsl ? { rejectUnauthorized: false } : false,

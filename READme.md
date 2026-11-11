@@ -1,5 +1,10 @@
 # Task Manager
 
+[![Live Demo](https://img.shields.io/badge/Demo-Live_Preview-success?style=for-the-badge&logo=vercel)](https://your-app.vercel.app)
+[![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
+[![NestJS](https://img.shields.io/badge/Backend-NestJS-E0234E?style=for-the-badge&logo=nestjs)](https://nestjs.com/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1?style=for-the-badge&logo=postgresql)](https://www.postgresql.org/)
+
 ## Project Overview
 
 Task Manager is a full-stack web application designed to streamline task management and team collaboration. It provides a robust platform for team leads (Admins) to manage projects and for team members to track their progress and meet deadlines. The application features a two-tiered user system with different access levels, secure authentication, and a clean, intuitive interface.
@@ -72,7 +77,7 @@ Upon the first run, the backend will automatically create an initial admin accou
 
 ## API Documentation
 
-The backend API is accessible at **`http://localhost:3000/api`**.
+The backend API is accessible at **`http://localhost:3000/api`** (or your live API URL in production).
 
 Key endpoints include:
 
@@ -80,3 +85,13 @@ Key endpoints include:
 - **User Management**: `/users`, `/users/:id`
 - **Task Management**: `/tasks`, `/tasks/:id`
 - **Reports**: `/reports/users/export`, `/reports/tasks/export`
+
+---
+
+## Cloud Deployment (Showcase)
+
+This project is pre-configured for instant deployment on modern cloud platforms:
+
+- **Frontend**: [Vercel](https://vercel.com) (Root directory: `client`, framework: `Vite`, environment variable: `VITE_API_URL=<YOUR_BACKEND_URL>/api`)
+- **Backend**: [Render](https://render.com) (Root directory: `server`, environment: `Node`, build: `npm install && npm run build`, start: `npm run start:prod`)
+- **Database**: [Neon](https://neon.tech) / [Supabase](https://supabase.com) (Free PostgreSQL; set `DATABASE_URL` in backend environment variables)

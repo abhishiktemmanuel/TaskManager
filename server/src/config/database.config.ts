@@ -3,6 +3,14 @@ import { User } from '../users/entities/user.entity';
 import { Task } from '../tasks/entities/task.entity';
 import { Todo } from '../tasks/entities/todo.entity';
 import { Team } from '../users/entities/team.entity';
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Load .env.local and .env
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const isProduction = process.env.NODE_ENV === 'production';
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
