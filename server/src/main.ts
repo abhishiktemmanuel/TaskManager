@@ -10,8 +10,35 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   // Enable CORS
+  const frontendUrlEnv = process.env.FRONTEND_URL;
+  const configuredOrigins = frontendUrlEnv
+    ? frontendUrlEnv.split(',').map((url) => url.trim().replace(/\/$/, ''))
+    : [];
+
+  const defaultOrigins = [
+    'http://localhost',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:80',
+  ];
+
+  const allowedOrigins = [...defaultOrigins, ...configuredOrigins];
+
   app.enableCors({
-    origin: ['http://localhost', 'http://localhost:5173', 'http://localhost:3000'], // Add your frontend URLs
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        configuredOrigins.includes('*') ||
+        process.env.NODE_ENV !== 'production';
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     credentials: true,
@@ -40,9 +67,9 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api');
 
-  const port = configService.get<number>('app.port') || 3000;
-  await app.listen(port);
+  const port = Number(process.env.PORT) || configService.get<number>('app.port') || 3000;
+  await app.listen(port, '0.0.0.0');
 
-  console.log(`Application is running on: http://localhost:${port}`);
+  console.log(`Application is running on: http://0.0.0.0:${port}`);
 }
 bootstrap();

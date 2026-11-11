@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { storage } from './helper.ts';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+const rawBaseUrl = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api';
+const API_BASE_URL = rawBaseUrl.endsWith('/') ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 export const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
